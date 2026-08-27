@@ -1,0 +1,2 @@
+-- GestorPro 2.0: organização inicial é criada no onboarding após autenticação.
+-- Este arquivo é apenas documentação de seed; nenhuma credencial é armazenada aqui.
