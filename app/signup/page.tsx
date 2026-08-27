@@ -14,34 +14,67 @@ export default function SignupPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError('');
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
     try {
-      const supabase = createClient();
-      const signup = supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name } },
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+      if (!url || !key) {
+        throw new Error('Configuração do Supabase não encontrada na implantação da Vercel.');
+      }
+
+      const response = await fetch(`${url.replace(/\\/$/, '')}/auth/v1/signup`, {
+        method: 'POST',
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          data: { name: name.trim() },
+        }),
+        signal: controller.signal,
       });
 
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('O cadastro demorou mais que o esperado. Verifique a conexão com o Supabase e tente novamente.')), 15000)
-      );
+      let result: any = null;
+      try {
+        result = await response.json();
+      } catch {
+        result = null;
+      }
 
-      const { data, error } = await Promise.race([signup, timeout]);
+      if (!response.ok) {
+        throw new Error(result?.msg || result?.message || result?.error_description || `Supabase recusou o cadastro (HTTP ${response.status}).`);
+      }
 
-      if (error) {
-        setError(error.message);
-      } else if (data.session) {
+      if (result?.access_token && result?.refresh_token) {
+        const supabase = createClient();
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: result.access_token,
+          refresh_token: result.refresh_token,
+        });
+        if (sessionError) throw sessionError;
         router.push('/dashboard');
         return;
-      } else {
-        setError('Conta criada. Verifique seu e-mail para continuar.');
       }
+
+      setError('Conta criada. Verifique seu e-mail para continuar.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível criar a conta.');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('O Supabase não respondeu em 10 segundos. Verifique as variáveis do Supabase na Vercel.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Não foi possível criar a conta.');
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   }
@@ -56,7 +89,7 @@ export default function SignupPage() {
         <label>E-mail<input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" /></label>
         <label>Senha<input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" /></label>
         {error && <div className="error">{error}</div>}
-        <button disabled={loading}>{loading ? 'Criando...' : 'Criar conta'}</button>
+        <button type="submit" disabled={loading}>{loading ? 'Criando...' : 'Criar conta'}</button>
         <a href="/login">Já tenho uma conta</a>
       </form>
     </main>
