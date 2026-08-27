@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+type ClientRow = { status: string | null; amount: number | null; due_date: string | null };
+
 export async function GET(){
  const s=await createClient();
  const {data:{user}}=await s.auth.getUser();
@@ -11,7 +13,7 @@ export async function GET(){
  const {data,error}=await s.from('clients').select('status,amount,due_date').eq('organization_id',org);
  if(error)return NextResponse.json({error:error.message},{status:500});
  const today=new Date();today.setHours(0,0,0,0);const in7=new Date(today);in7.setDate(in7.getDate()+7);
- const rows=data??[];
- const dated=rows.filter(x=>x.due_date).map(x=>({...x,d:new Date(`${x.due_date}T00:00:00`)}));
- return NextResponse.json({clients:rows.length,active:rows.filter(x=>x.status==='active').length,expired:rows.filter(x=>x.status==='expired'||(x.d&&x.d<today)).length,expiring:dated.filter(x=>x.d>=today&&x.d<=in7).length,revenue:rows.reduce((n,x)=>n+Number(x.amount||0),0)});
+ const rows=(data??[]) as ClientRow[];
+ const dated=rows.filter(x=>x.due_date).map(x=>({due_date:x.due_date!,d:new Date(`${x.due_date}T00:00:00`)}));
+ return NextResponse.json({clients:rows.length,active:rows.filter(x=>x.status==='active').length,expired:rows.filter(x=>x.status==='expired'||(x.due_date&&new Date(`${x.due_date}T00:00:00`)<today)).length,expiring:dated.filter(x=>x.d>=today&&x.d<=in7).length,revenue:rows.reduce((n,x)=>n+Number(x.amount||0),0)});
 }
